@@ -68,7 +68,7 @@ jobs:
           } > "$SDKROOT/licenses/android-sdk-license"
           echo "84831b9409646a918e30573bab4c9c91346d8abd" > "$SDKROOT/licenses/android-sdk-preview-license"
 
-          # 3) ✅ sdkmanager wrapper 생성 (YAML 안전하게 printf로 생성)
+          # 3) ✅ sdkmanager wrapper 생성 (YAML 안전: printf로 생성)
           REAL_SDKMANAGER="$SDKROOT/cmdline-tools/latest/bin/sdkmanager"
 
           printf '%s\n' \
@@ -95,7 +95,7 @@ jobs:
 
           chmod +x "$SDKROOT/tools/bin/sdkmanager"
 
-          # wrapper가 real 위치를 알 수 있게 export
+          # wrapper가 real sdkmanager 위치를 알 수 있게 export
           echo "REAL_SDKMANAGER_PATH=$REAL_SDKMANAGER" >> "$GITHUB_ENV"
 
           # PATH 등록
@@ -125,7 +125,7 @@ jobs:
           set -e
           echo "ANDROID_SDK_ROOT=$ANDROID_SDK_ROOT"
           echo "REAL_SDKMANAGER_PATH=$REAL_SDKMANAGER_PATH"
-          which sdkmanager
+          which sdkmanager || true
           sdkmanager --version || true
           ls -al "$ANDROID_SDK_ROOT/build-tools" || true
           ls -al "$ANDROID_SDK_ROOT/build-tools/34.0.0" || true
