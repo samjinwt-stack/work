@@ -36,7 +36,6 @@ jobs:
             build-essential ccache \
             libffi-dev libssl-dev \
             autoconf automake libtool pkg-config
-
           python -m pip install --upgrade pip
           pip install buildozer cython
 
@@ -57,6 +56,7 @@ jobs:
           mkdir -p "$SDKROOT/cmdline-tools/latest"
           cp -r /tmp/cmdline/cmdline-tools/* "$SDKROOT/cmdline-tools/latest/"
 
+          # buildozer가 찾는 tools/bin 경로 준비
           mkdir -p "$SDKROOT/tools/bin"
           ln -sf "$SDKROOT/cmdline-tools/latest/bin/avdmanager" "$SDKROOT/tools/bin/avdmanager" || true
 
@@ -68,42 +68,41 @@ jobs:
           } > "$SDKROOT/licenses/android-sdk-license"
           echo "84831b9409646a918e30573bab4c9c91346d8abd" > "$SDKROOT/licenses/android-sdk-preview-license"
 
-          # 3) ✅ sdkmanager를 "가로채는" wrapper 생성
+          # 3) ✅ sdkmanager wrapper 생성 (YAML 안전하게 printf로 생성)
           REAL_SDKMANAGER="$SDKROOT/cmdline-tools/latest/bin/sdkmanager"
-          cat > "$SDKROOT/tools/bin/sdkmanager" <<'WRAP'
-          #!/usr/bin/env bash
-          set -euo pipefail
 
-          # 실제 sdkmanager 위치는 환경변수로 전달
-          REAL="${REAL_SDKMANAGER_PATH:-}"
+          printf '%s\n' \
+            '#!/usr/bin/env bash' \
+            'set -euo pipefail' \
+            '' \
+            'REAL="${REAL_SDKMANAGER_PATH:-}"' \
+            'if [[ -z "${REAL}" || ! -x "${REAL}" ]]; then' \
+            '  echo "REAL sdkmanager not found: REAL_SDKMANAGER_PATH=${REAL}" >&2' \
+            '  exit 1' \
+            'fi' \
+            '' \
+            'filtered=()' \
+            'for a in "$@"; do' \
+            '  if [[ "$a" =~ build-tools\;37 ]] || [[ "$a" =~ 37\.0\.0-rc ]] || [[ "$a" =~ 37-rc ]]; then' \
+            '    echo "BLOCKED (rc build-tools): $a" >&2' \
+            '    continue' \
+            '  fi' \
+            '  filtered+=("$a")' \
+            'done' \
+            '' \
+            'exec "$REAL" "${filtered[@]}"' \
+            > "$SDKROOT/tools/bin/sdkmanager"
 
-          if [[ -z "${REAL}" || ! -x "${REAL}" ]]; then
-            echo "REAL sdkmanager not found: REAL_SDKMANAGER_PATH=${REAL}" >&2
-            exit 1
-          fi
-
-          # 인자에서 rc/preview build-tools 요청을 제거(차단)
-          filtered=()
-          for a in "$@"; do
-            if [[ "$a" =~ build-tools\;37 ]] || [[ "$a" =~ 37\.0\.0-rc ]] || [[ "$a" =~ 37-rc ]]; then
-              echo "BLOCKED (rc build-tools): $a" >&2
-              continue
-            fi
-            filtered+=("$a")
-          done
-
-          exec "$REAL" "${filtered[@]}"
-WRAP
           chmod +x "$SDKROOT/tools/bin/sdkmanager"
 
-          # wrapper가 real 위치를 알 수 있게 환경변수로 export(현재 step + 이후 step)
-          echo "REAL_SDKMANAGER_PATH=$REAL_SDKMANAGER" >> $GITHUB_ENV
+          # wrapper가 real 위치를 알 수 있게 export
+          echo "REAL_SDKMANAGER_PATH=$REAL_SDKMANAGER" >> "$GITHUB_ENV"
 
           # PATH 등록
-          echo "$SDKROOT/cmdline-tools/latest/bin" >> $GITHUB_PATH
-          echo "$SDKROOT/tools/bin" >> $GITHUB_PATH
-          echo "$SDKROOT/platform-tools" >> $GITHUB_PATH
-          echo "$SDKROOT/build-tools/34.0.0" >> $GITHUB_PATH
+          echo "$SDKROOT/cmdline-tools/latest/bin" >> "$GITHUB_PATH"
+          echo "$SDKROOT/tools/bin" >> "$GITHUB_PATH"
+          echo "$SDKROOT/platform-tools" >> "$GITHUB_PATH"
+          echo "$SDKROOT/build-tools/34.0.0" >> "$GITHUB_PATH"
 
           # 4) 라이선스 동의(비대화)
           yes | "$SDKROOT/tools/bin/sdkmanager" --sdk_root="$SDKROOT" --licenses
@@ -136,18 +135,12 @@ WRAP
         shell: bash
         run: |
           set -euo pipefail
-
-          # ✅ 빌드 단계에서 다시 강제(중요)
           export ANDROID_HOME="$ANDROID_SDK_ROOT"
           export ANDROID_SDK_ROOT="$ANDROID_SDK_ROOT"
           export ANDROIDSDK="$ANDROID_SDK_ROOT"
           export REAL_SDKMANAGER_PATH="$REAL_SDKMANAGER_PATH"
-
           export PATH="$ANDROID_SDK_ROOT/cmdline-tools/latest/bin:$ANDROID_SDK_ROOT/tools/bin:$ANDROID_SDK_ROOT/platform-tools:$ANDROID_SDK_ROOT/build-tools/34.0.0:$PATH"
-
-          # 추가 방어
           export P4A_NO_SDK_UPDATE=1
-
           buildozer -v android debug
 
       - name: Upload APK
