@@ -8,15 +8,17 @@ jobs:
     runs-on: ubuntu-latest
 
     env:
-      # Buildozer가 기본으로 쓰는 SDK 위치로 강제
+      # ✅ Buildozer가 기본으로 쓰는 SDK 위치로 강제
       ANDROID_SDK_ROOT: /home/runner/.buildozer/android/platform/android-sdk
       ANDROID_HOME: /home/runner/.buildozer/android/platform/android-sdk
       ANDROIDSDK: /home/runner/.buildozer/android/platform/android-sdk
-      # 라이선스 자동동의(비대화형)
-      ANDROID_SDK_MANAGER_OPTS: --sdk_root=/home/runner/.buildozer/android/platform/android-sdk
+
+      # ✅ p4a가 SDK 업데이트 시도 못 하게(추가 방어)
+      P4A_NO_SDK_UPDATE: "1"
 
     steps:
-      - uses: actions/checkout@v4
+      - name: Checkout
+        uses: actions/checkout@v4
 
       - name: Setup Python
         uses: actions/setup-python@v5
@@ -41,7 +43,7 @@ jobs:
           python -m pip install --upgrade pip
           pip install buildozer cython
 
-      # ✅ cmdline-tools 최신 설치 + "tools/bin/sdkmanager" 심볼릭 링크 강제
+      # ✅ cmdline-tools 최신 설치 + stable SDK 구성 + 라이선스 파일 직접 생성
       - name: Install Android cmdline-tools + SDK (API34 + build-tools 34.0.0)
         shell: bash
         run: |
@@ -69,7 +71,18 @@ jobs:
           echo "$SDKROOT/platform-tools" >> $GITHUB_PATH
           echo "$SDKROOT/build-tools/34.0.0" >> $GITHUB_PATH
 
-          # 라이선스 동의
+          # ✅ (핵심) 라이선스 파일을 직접 만들어서 buildozer/p4a가 다시 sdkmanager를 돌려도 안 막히게 함
+          mkdir -p "$SDKROOT/licenses"
+          # android-sdk-license (대표 hash들)
+          {
+            echo "8933bad161af4178b1185d1a37fbf41ea5269c55"
+            echo "d56f5187479451eabf01fb78af6dfcb131a6481e"
+          } > "$SDKROOT/licenses/android-sdk-license"
+
+          # preview license (RC/preview 관련)
+          echo "84831b9409646a918e30573bab4c9c91346d8abd" > "$SDKROOT/licenses/android-sdk-preview-license"
+
+          # 라이선스 동의(한 번 더, 안전장치)
           yes | "$SDKROOT/tools/bin/sdkmanager" --sdk_root="$SDKROOT" --licenses
 
           # ✅ 채널 0(Stable)만 보게 해서 37-rc 안 보이게 함
@@ -79,23 +92,34 @@ jobs:
             "build-tools;34.0.0"
 
           # aidl 확인
-          ls -al "$SDKROOT/build-tools/34.0.0" || true
+          ls -al "$SDKROOT/build-tools/34.0.0"
           test -f "$SDKROOT/build-tools/34.0.0/aidl"
           echo "✅ aidl OK"
 
       - name: Show SDK paths
+        shell: bash
         run: |
+          set -e
           echo "ANDROID_SDK_ROOT=$ANDROID_SDK_ROOT"
+          echo "ANDROID_HOME=$ANDROID_HOME"
+          echo "ANDROIDSDK=$ANDROIDSDK"
           which sdkmanager || true
           sdkmanager --version || true
           ls -al "$ANDROID_SDK_ROOT/build-tools" || true
+          ls -al "$ANDROID_SDK_ROOT/licenses" || true
 
       - name: Build APK
         shell: bash
         run: |
           set -euo pipefail
 
-          # 혹시 buildozer/p4a가 RC 잡으려는 업데이트를 못 하게 추가 방어
+          # ✅ 빌드 단계에서 PATH/SDK를 다시 강제(중요)
+          export ANDROID_HOME="$ANDROID_SDK_ROOT"
+          export ANDROID_SDK_ROOT="$ANDROID_SDK_ROOT"
+          export ANDROIDSDK="$ANDROID_SDK_ROOT"
+          export PATH="$ANDROID_SDK_ROOT/cmdline-tools/latest/bin:$ANDROID_SDK_ROOT/tools/bin:$ANDROID_SDK_ROOT/platform-tools:$ANDROID_SDK_ROOT/build-tools/34.0.0:$PATH"
+
+          # ✅ 추가 방어
           export P4A_NO_SDK_UPDATE=1
 
           buildozer -v android debug
